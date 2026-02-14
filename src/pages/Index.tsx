@@ -16,19 +16,24 @@ import UnlockGate from "@/components/UnlockGate";
 import { dailyMessages } from "@/lib/dailyMessages";
 
 const Index = () => {
+  // 🎬 Intro
   const [entered, setEntered] = useState(false);
+
+  // 🔐 Gate
   const [unlocked, setUnlocked] = useState(false);
+
+  // 📦 Data
   const [data, setData] = useState<SiteData>(defaultData);
   const [loading, setLoading] = useState(true);
-  const [editOpen, setEditOpen] = useState(false);
-  const [currentScene, setCurrentScene] = useState(0);
-  const [surpriseMode, setSurpriseMode] = useState(false);
-  const [memoriesUnlocked, setMemoriesUnlocked] = useState(false);
 
+  // ✏️ Edit
+  const [editOpen, setEditOpen] = useState(false);
+  const saveTimer = useRef<number | null>(null);
+
+  // 🧭 Scenes
+  const [currentScene, setCurrentScene] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [muted, setMuted] = useState(false);
 
   const navigateTo = (index: number) => {
     sceneRefs.current[index]?.scrollIntoView({ behavior: "smooth" });
@@ -38,7 +43,10 @@ const Index = () => {
     sceneRefs.current[i] = el;
   };
 
-  // 🎵 تشغيل الموسيقى
+  // 🎵 Music
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [muted, setMuted] = useState(false);
+
   useEffect(() => {
     const playAudio = () => {
       const a = audioRef.current;
@@ -63,37 +71,69 @@ const Index = () => {
     setMuted(a.muted);
   };
 
-  // 🔐 فتح الموقع عبر Edge Function
-  const handleUnlock = async (dateInput: string) => {
+  // 🔐 Unlock via Edge Function
+  const handleUnlock = async (dateInput: string): Promise<boolean> => {
     const { data, error } = await supabase.functions.invoke("unlock", {
-      body: { date: dateInput },
+      body: { date: dateInput.trim() },
     });
 
-    if (!error && data?.success) {
-      setUnlocked(true);
-    } else {
-      alert("التاريخ غير صحيح ❤️");
+    if (error) {
+      console.error(error);
+      return false;
     }
+
+    if (data?.success) {
+      setUnlocked(true);
+      return true;
+    }
+
+    return false;
   };
 
-  // ⏳ تحميل البيانات بعد الفتح
+  // 📥 Load from Supabase after unlock
   useEffect(() => {
     if (!unlocked) return;
 
     const load = async () => {
       const siteId = import.meta.env.VITE_SITE_ID as string;
+
       const { data: site } = await supabase
         .from("love_sites")
         .select("*")
         .eq("id", siteId)
         .single();
 
+      const { data: reasons } = await supabase
+        .from("love_reasons")
+        .select("*")
+        .eq("site_id", siteId)
+        .order("position", { ascending: true });
+
+      const { data: photos } = await supabase
+        .from("love_photos")
+        .select("*")
+        .eq("site_id", siteId)
+        .order("position", { ascending: true });
+
       if (site) {
         setData({
-          ...defaultData,
-          herName: site.her_name,
-          myName: site.his_name,
-          startDate: site.start_date,
+          herName: site.her_name ?? defaultData.herName,
+          myName: site.his_name ?? defaultData.myName,
+          startDate: site.start_date ?? defaultData.startDate,
+          heroSubtitle: site.hero_subtitle ?? "",
+          loveLetter: site.love_letter ?? "",
+          reasons: (reasons ?? []).map((r: any) => r.reason),
+          surpriseMessage: site.surprise_text ?? "",
+          photos: (photos ?? []).map((p: any) => ({
+            id: p.id,
+            data: supabase.storage
+              .from("love-memories")
+              .getPublicUrl(p.storage_path).data.publicUrl,
+            caption: p.caption ?? "",
+            storagePath: p.storage_path,
+          })),
+          language: "ar",
+          musicEnabled: true,
         });
       }
 
@@ -103,31 +143,38 @@ const Index = () => {
     load();
   }, [unlocked]);
 
-  // 💘 عداد الأيام
-  const daysTogether = useMemo(() => {
-    const start = new Date(data.startDate);
-    const today = new Date();
-    const diff = today.getTime() - start.getTime();
-    return Math.floor(diff / (1000 * 60 * 60 * 24));
-  }, [data.startDate]);
+  // 💾 Save debounce
+  const saveToDb = (next: SiteData) => {
+    const siteId = import.meta.env.VITE_SITE_ID as string;
+    if (!siteId) return;
 
-  // 💌 رسالة اليوم
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+
+    saveTimer.current = window.setTimeout(async () => {
+      await supabase.from("love_sites").update({
+        her_name: next.herName,
+        his_name: next.myName,
+        start_date: next.startDate,
+        hero_subtitle: next.heroSubtitle,
+        love_letter: next.loveLetter,
+        surprise_text: next.surpriseMessage,
+      }).eq("id", siteId);
+    }, 600);
+  };
+
+  // 💌 Daily Message
   const dailyMessage = useMemo(() => {
     const today = new Date();
-    if (today.getDate() === 21 && today.getMonth() === 2) {
-      return "اليوم يومنا يا فلاولة ❤️ يوم اخترتك وقلبي قال خلاص دي هي.";
-    }
     const start = new Date(today.getFullYear(), 0, 0);
     const diff = today.getTime() - start.getTime();
     const dayOfYear = Math.floor(diff / 86400000);
     return dailyMessages[dayOfYear % dailyMessages.length];
   }, []);
 
-  // 🎨 ستايل خاص 21/03
-  const isSpecialDay = useMemo(() => {
-    const today = new Date();
-    return today.getDate() === 21 && today.getMonth() === 2;
-  }, []);
+  const dailyPhoto = useMemo(() => {
+    if (!data.photos.length) return null;
+    return data.photos[Math.floor(Math.random() * data.photos.length)];
+  }, [data.photos]);
 
   // 🎬 Intro
   if (!entered) {
@@ -151,39 +198,11 @@ const Index = () => {
 
   if (loading) return <div className="h-screen bg-black" />;
 
-  // 🎉 Surprise Mode
-  if (surpriseMode) {
-    return (
-      <div className="fixed inset-0 bg-black flex items-center justify-center text-center">
-        <div>
-          <h1 className="text-4xl text-white mb-6">
-            لو رجع الزمن ألف مرة…
-          </h1>
-          <p className="text-pink-400 text-2xl">
-            أختارك إنتِ يا فلاولة ❤️
-          </p>
-          <button
-            onClick={() => setSurpriseMode(false)}
-            className="mt-10 px-6 py-2 bg-pink-600 rounded-full"
-          >
-            رجوع
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div
-      dir="rtl"
-      className={`relative ${
-        isSpecialDay
-          ? "bg-gradient-to-b from-pink-900 via-red-900 to-black"
-          : ""
-      }`}
-    >
+    <div dir="rtl" className="relative">
       <audio ref={audioRef} src="/music/love.mp3" />
 
+      {/* 🔊 Mute */}
       <button
         onClick={toggleMute}
         className="fixed top-4 right-4 z-50 glass px-4 py-2 rounded-full"
@@ -193,56 +212,50 @@ const Index = () => {
 
       <HeartParticles />
 
-      <div className="fixed bottom-40 left-1/2 -translate-x-1/2 glass px-6 py-3 rounded-2xl text-center">
-        <p className="text-pink-200">مرّ على حبنا</p>
-        <p className="text-white text-2xl">{daysTogether} يوم ❤️</p>
-      </div>
-
+      {/* 💌 رسالة اليوم */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 glass px-6 py-4 rounded-2xl text-center max-w-md">
         <p className="text-pink-200">💌 رسالة اليوم:</p>
         <p className="text-white">{dailyMessage}</p>
+        {dailyPhoto && (
+          <img
+            src={dailyPhoto.data}
+            className="mt-3 w-32 h-32 object-cover rounded-xl mx-auto"
+          />
+        )}
       </div>
 
+      {/* ✏️ تعديل */}
       <button
-        onClick={() => setSurpriseMode(true)}
-        className="fixed bottom-4 right-4 opacity-20 hover:opacity-100"
+        onClick={() => setEditOpen(true)}
+        className="fixed top-4 left-4 z-50 glass px-4 py-2 rounded-full"
       >
-        ✨
+        ✏️
       </button>
 
+      <EditPanel
+        data={data}
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        onChange={(next) => {
+          setData(next);
+          saveToDb(next);
+        }}
+      />
+
+      {/* Scenes */}
       <div ref={containerRef} className="snap-container">
         <div ref={setSceneRef(0)}>
           <Scene1 data={data} onNext={() => navigateTo(1)} />
         </div>
-
         <div ref={setSceneRef(1)}>
           <Scene2 data={data} />
         </div>
-
         <div ref={setSceneRef(2)}>
-          {memoriesUnlocked ? (
-            <Scene3 data={data} />
-          ) : (
-            <div className="h-screen flex items-center justify-center">
-              <button
-                onClick={() => {
-                  const pass = prompt("اكتبي كلمة السر للذكريات");
-                  if (pass === "flawla") {
-                    setMemoriesUnlocked(true);
-                  }
-                }}
-                className="glass px-6 py-3 rounded-full"
-              >
-                فتح الذكريات 🔐
-              </button>
-            </div>
-          )}
+          <Scene3 data={data} editMode={editOpen} onChange={setData} />
         </div>
-
         <div ref={setSceneRef(3)}>
           <Scene4 data={data} />
         </div>
-
         <div ref={setSceneRef(4)}>
           <Scene5 data={data} />
         </div>

@@ -1,3 +1,11 @@
+export interface PhotoItem {
+  id: string;
+  data: string; // public URL
+  caption: string;
+  story?: string; // ✅ جديد
+  storagePath?: string; // Supabase Storage path
+}
+
 export interface SiteData {
   herName: string;
   myName: string;
@@ -9,14 +17,6 @@ export interface SiteData {
   photos: PhotoItem[];
   language: "ar" | "en";
   musicEnabled: boolean;
-}
-
-export interface PhotoItem {
-  id: string;
-  data: string; // public URL
-  caption: string;
-  story?: string; // ✅ قصة الصورة (اختياري)
-  storagePath?: string; // Supabase Storage path
 }
 
 export const defaultData: SiteData = {

@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import { SiteData, defaultData } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
 
+import CinematicIntro from "@/components/CinematicIntro";
 import HeartParticles from "@/components/HeartParticles";
 import ProgressNav from "@/components/ProgressNav";
 import EditPanel from "@/components/EditPanel";
@@ -26,12 +27,16 @@ const checkUnlocked = (): boolean => {
 };
 
 const Index = () => {
+  // ✅ Cinematic intro only once
+  const [introDone, setIntroDone] = useState(() => {
+    return localStorage.getItem("love-intro-done") === "1";
+  });
+
   const [unlocked, setUnlocked] = useState(checkUnlocked);
   const [data, setData] = useState<SiteData>(defaultData);
   const [loading, setLoading] = useState(true);
 
   const saveTimer = useRef<number | null>(null);
-
   const [editOpen, setEditOpen] = useState(false);
   const [currentScene, setCurrentScene] = useState(0);
 
@@ -46,7 +51,7 @@ const Index = () => {
     sceneRefs.current[i] = el;
   };
 
-  // ✅ 1) Scene observer (fixed + properly closed)
+  // ✅ 1) Scene observer
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -70,7 +75,7 @@ const Index = () => {
     return () => observer.disconnect();
   }, []);
 
-  // ✅ 2) Load from Supabase (fixed, separate useEffect)
+  // ✅ 2) Load from Supabase
   useEffect(() => {
     const load = async () => {
       const siteId = import.meta.env.VITE_SITE_ID as string | undefined;
@@ -111,15 +116,11 @@ const Index = () => {
           loveLetter: site.love_letter ?? defaultData.loveLetter,
           reasons: (reasons ?? []).map((r: any) => r.reason) ?? defaultData.reasons,
           surpriseMessage: site.surprise_text ?? defaultData.surpriseMessage,
-
-          // photos: stored as public URLs (storage)
           photos: (photos ?? []).map((p: any) => {
             const publicUrl = supabase.storage
               .from("love-memories")
               .getPublicUrl(p.storage_path).data.publicUrl;
 
-            // Note: storagePath may not exist in your SiteData type.
-            // We keep it for delete operations (if you implement them).
             return {
               id: p.id,
               data: publicUrl,
@@ -127,7 +128,6 @@ const Index = () => {
               storagePath: p.storage_path,
             } as any;
           }),
-
           language: site.language === "en" ? "en" : "ar",
           musicEnabled: !!site.music_enabled,
         };
@@ -152,7 +152,6 @@ const Index = () => {
 
     saveTimer.current = window.setTimeout(async () => {
       try {
-        // 1) update main site row
         const { error: updErr } = await supabase
           .from("love_sites")
           .update({
@@ -169,8 +168,10 @@ const Index = () => {
 
         if (updErr) console.error("Update love_sites error:", updErr);
 
-        // 2) reasons: delete + insert
-        const { error: delErr } = await supabase.from("love_reasons").delete().eq("site_id", siteId);
+        const { error: delErr } = await supabase
+          .from("love_reasons")
+          .delete()
+          .eq("site_id", siteId);
         if (delErr) console.error("Delete love_reasons error:", delErr);
 
         if (next.reasons?.length) {
@@ -194,12 +195,25 @@ const Index = () => {
     setUnlocked(false);
   };
 
-  // Gate
+  // ✅ 0) Cinematic intro first (only once)
+  if (!introDone) {
+    return (
+      <CinematicIntro
+        herName={defaultData.herName || "إيناس"}
+        onEnter={() => {
+          localStorage.setItem("love-intro-done", "1");
+          setIntroDone(true);
+        }}
+      />
+    );
+  }
+
+  // ✅ 1) Gate (date unlock)
   if (!unlocked) {
     return <UnlockGate onUnlock={() => setUnlocked(true)} />;
   }
 
-  // Loading state
+  // ✅ 2) Loading
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: "hsl(var(--background))" }}>
@@ -212,17 +226,13 @@ const Index = () => {
 
   return (
     <div dir="rtl" className="relative">
-      {/* Cinematic overlays */}
       <div className="film-grain" />
       <div className="vignette" />
 
-      {/* Heart particles */}
       <HeartParticles />
 
-      {/* Progress Nav */}
       <ProgressNav currentScene={currentScene} totalScenes={5} onNavigate={navigateTo} />
 
-      {/* Edit button */}
       <button
         onClick={() => setEditOpen(true)}
         className="fixed top-4 left-4 z-[250] glass rounded-full px-4 py-2 font-cairo text-sm cursor-pointer hover:scale-105 transition-transform"
@@ -231,7 +241,6 @@ const Index = () => {
         ✏️ تعديل
       </button>
 
-      {/* Lock button */}
       <button
         onClick={handleLock}
         className="fixed top-4 left-28 z-[250] glass rounded-full px-4 py-2 font-cairo text-sm cursor-pointer hover:scale-105 transition-transform"
@@ -240,7 +249,6 @@ const Index = () => {
         🔒 قفل
       </button>
 
-      {/* Edit Panel */}
       <EditPanel
         data={data}
         onChange={(next) => {
@@ -251,20 +259,23 @@ const Index = () => {
         onClose={() => setEditOpen(false)}
       />
 
-      {/* Scenes */}
       <div ref={containerRef} className="snap-container">
         <div ref={setSceneRef(0)}>
           <Scene1 data={data} onNext={() => navigateTo(1)} />
         </div>
+
         <div ref={setSceneRef(1)}>
           <Scene2 data={data} />
         </div>
+
         <div ref={setSceneRef(2)}>
-          <Scene3 data={data} />
+          <Scene3 data={data} editMode={editOpen} onChange={(next) => setData(next)} />
         </div>
+
         <div ref={setSceneRef(3)}>
           <Scene4 data={data} />
         </div>
+
         <div ref={setSceneRef(4)}>
           <Scene5 data={data} />
         </div>

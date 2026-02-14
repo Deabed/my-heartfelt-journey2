@@ -167,6 +167,7 @@ const Index = () => {
               id: p.id,
               data: publicUrl,
               caption: p.caption ?? "",
+              story: p.story ?? "", 
               storagePath: p.storage_path,
             } as any;
           }),

@@ -7,13 +7,14 @@ import { supabase } from "@/lib/supabase";
 interface Props {
   data: SiteData;
   editMode?: boolean; // ✅ يظهر أدوات التعديل فقط في وضع التعديل
-  onChange?: (next: SiteData) => void; // ✅ لتحديث الواجهة بعد الرفع/الحذف/الكابشن
+  onChange?: (next: SiteData) => void; // ✅ لتحديث الواجهة بعد الرفع/الحذف/التعديل
 }
 
 type PhotoItem = {
   id: string;
   data: string; // public url
   caption?: string;
+  story?: string;
   storagePath?: string;
 };
 
@@ -34,18 +35,25 @@ async function uploadToStorage(file: File, siteId: string) {
   return { storagePath, publicUrl };
 }
 
-async function insertPhotoRow(siteId: string, storagePath: string, caption: string, position: number) {
+async function insertPhotoRow(
+  siteId: string,
+  storagePath: string,
+  caption: string,
+  story: string,
+  position: number
+) {
   const { data, error } = await supabase
     .from("love_photos")
-    .insert({ site_id: siteId, storage_path: storagePath, caption, position })
+    .insert({ site_id: siteId, storage_path: storagePath, caption, story, position })
     .select("id")
     .single();
+
   if (error) throw error;
   return data.id as string;
 }
 
-async function updateCaption(photoId: string, caption: string) {
-  const { error } = await supabase.from("love_photos").update({ caption }).eq("id", photoId);
+async function updatePhotoText(photoId: string, caption: string, story: string) {
+  const { error } = await supabase.from("love_photos").update({ caption, story }).eq("id", photoId);
   if (error) throw error;
 }
 
@@ -61,7 +69,11 @@ async function deleteFromStorage(storagePath: string) {
 
 async function resequence(siteId: string, photos: PhotoItem[]) {
   for (let i = 0; i < photos.length; i++) {
-    await supabase.from("love_photos").update({ position: i }).eq("id", photos[i].id).eq("site_id", siteId);
+    await supabase
+      .from("love_photos")
+      .update({ position: i })
+      .eq("id", photos[i].id)
+      .eq("site_id", siteId);
   }
 }
 
@@ -82,7 +94,7 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
     if (!onChange) return;
     if (!files || files.length === 0) return;
     if (!siteId) {
-      alert("VITE_SITE_ID غير موجود في .env");
+      alert("VITE_SITE_ID غير موجود في .env / Vercel env");
       return;
     }
 
@@ -93,14 +105,23 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const { storagePath, publicUrl } = await uploadToStorage(file, siteId);
-        const newId = await insertPhotoRow(siteId, storagePath, "", startPos + i);
 
-        newPhotos.push({ id: newId, data: publicUrl, caption: "", storagePath });
+        const { storagePath, publicUrl } = await uploadToStorage(file, siteId);
+
+        const newId = await insertPhotoRow(siteId, storagePath, "", "", startPos + i);
+
+        newPhotos.push({
+          id: newId,
+          data: publicUrl,
+          caption: "",
+          story: "",
+          storagePath,
+        });
       }
 
       const next: SiteData = { ...data, photos: [...(photos as any), ...newPhotos] as any };
       onChange(next);
+
       await resequence(siteId, [...photos, ...newPhotos]);
     } catch (e) {
       console.error(e);
@@ -111,20 +132,25 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
     }
   };
 
-  const handleCaption = async (photoId: string, caption: string) => {
-    if (!editMode) return;
+  const handleTextChange = (photoId: string, field: "caption" | "story", value: string) => {
     if (!onChange) return;
 
-    // update UI immediately
-    const nextPhotos = photos.map((p) => (p.id === photoId ? { ...p, caption } : p));
+    const nextPhotos = photos.map((p) => (p.id === photoId ? { ...p, [field]: value } : p));
     onChange({ ...data, photos: nextPhotos as any });
+  };
 
-    // persist to DB
+  const persistText = async (photoId: string) => {
+    if (!editMode) return;
+    if (!siteId) return;
+
+    const p = photos.find((x) => x.id === photoId);
+    if (!p) return;
+
     try {
-      await updateCaption(photoId, caption);
+      await updatePhotoText(photoId, p.caption ?? "", p.story ?? "");
     } catch (e) {
       console.error(e);
-      alert("تعذر حفظ الكابشن في قاعدة البيانات.");
+      alert("تعذر حفظ النص (Caption/Story) في قاعدة البيانات.");
     }
   };
 
@@ -145,6 +171,7 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
 
       const remaining = photos.filter((p) => p.id !== photoId);
       onChange({ ...data, photos: remaining as any });
+
       await resequence(siteId, remaining);
     } catch (e) {
       console.error(e);
@@ -154,6 +181,7 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
     }
   };
 
+  // ✅ Empty State
   if (photos.length === 0) {
     return (
       <section className="snap-section relative flex flex-col items-center justify-center overflow-hidden">
@@ -250,7 +278,7 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
               initial={{ opacity: 0, y: 40, rotate: rotations[i % rotations.length] * 2 }}
               whileInView={{ opacity: 1, y: 0, rotate: rotations[i % rotations.length] }}
               viewport={{ once: true }}
-              transition={{ duration: 0.6, delay: i * 0.1 }}
+              transition={{ duration: 0.6, delay: i * 0.08 }}
               onClick={() => setLightboxIndex(i)}
               whileHover={{ scale: 1.05, rotate: 0, zIndex: 10 }}
             >
@@ -261,12 +289,9 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
                 loading="lazy"
               />
 
-              {/* أدوات التعديل — تظهر فقط في Edit Mode */}
+              {/* أدوات التعديل */}
               {editMode && (
-                <div
-                  className="absolute top-2 left-2 flex gap-2"
-                  onClick={(e) => e.stopPropagation()}
-                >
+                <div className="absolute top-2 left-2 flex gap-2" onClick={(e) => e.stopPropagation()}>
                   <button
                     className="glass rounded-full px-3 py-1 font-cairo text-xs hover:scale-105 transition-transform disabled:opacity-60"
                     style={{ color: "hsl(var(--foreground))" }}
@@ -279,21 +304,40 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
                 </div>
               )}
 
-              {/* Caption عرض */}
-              {photo.caption && !editMode && (
-                <p className="text-center mt-2 text-sm font-cairo" style={{ color: "hsl(340 30% 20%)" }}>
-                  {photo.caption}
-                </p>
+              {/* عرض Caption + Story في الوضع العادي */}
+              {!editMode && (photo.caption || photo.story) && (
+                <div className="mt-2 px-2 pb-2 text-center">
+                  {photo.caption && (
+                    <p className="text-sm font-cairo" style={{ color: "hsl(340 30% 20%)" }}>
+                      {photo.caption}
+                    </p>
+                  )}
+                  {photo.story && (
+                    <p className="text-xs font-cairo mt-1 opacity-90" style={{ color: "hsl(340 25% 25%)" }}>
+                      {photo.story}
+                    </p>
+                  )}
+                </div>
               )}
 
-              {/* Caption تعديل */}
+              {/* تعديل Caption + Story */}
               {editMode && (
-                <div className="mt-2 px-2 pb-2" onClick={(e) => e.stopPropagation()}>
+                <div className="mt-2 px-2 pb-2 space-y-2" onClick={(e) => e.stopPropagation()}>
                   <input
                     value={photo.caption ?? ""}
-                    onChange={(e) => handleCaption(photo.id, e.target.value)}
+                    onChange={(e) => handleTextChange(photo.id, "caption", e.target.value)}
+                    onBlur={() => persistText(photo.id)}
                     className="w-full rounded-lg px-2 py-1 font-cairo text-xs bg-white/70 text-black outline-none"
                     placeholder="اكتب كابشن…"
+                  />
+
+                  <textarea
+                    value={photo.story ?? ""}
+                    onChange={(e) => handleTextChange(photo.id, "story", e.target.value)}
+                    onBlur={() => persistText(photo.id)}
+                    rows={3}
+                    className="w-full rounded-lg px-2 py-2 font-cairo text-xs bg-white/70 text-black outline-none resize-none"
+                    placeholder="اكتب قصة الصورة…"
                   />
                 </div>
               )}

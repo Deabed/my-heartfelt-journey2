@@ -29,7 +29,7 @@ const checkUnlocked = (): boolean => {
 };
 
 const Index = () => {
-  // 🎬 Intro يظهر كل مرة
+  // 🎬 Intro يظهر كل مرة (في نفس الزيارة)
   const [entered, setEntered] = useState(false);
 
   // 🔐 Gate
@@ -56,12 +56,41 @@ const Index = () => {
     sceneRefs.current[i] = el;
   };
 
-  // 🎵 Music (ONE audio only)
+  // 🎵 Music (عنصر واحد فقط)
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [muted, setMuted] = useState(false);
 
-  // ✅ 1) Scene observer
+  // ✅ تشغيل الصوت + fallback عند أول click
   useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+
+    a.volume = 0.6;
+    a.loop = true;
+
+    const tryPlay = () => a.play().catch(() => {});
+    tryPlay();
+
+    const resumeOnClick = () => {
+      a.play().catch(() => {});
+      document.removeEventListener("click", resumeOnClick);
+    };
+
+    document.addEventListener("click", resumeOnClick);
+    return () => document.removeEventListener("click", resumeOnClick);
+  }, []);
+
+  const toggleMute = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    a.muted = !a.muted;
+    setMuted(a.muted);
+  };
+
+  // ✅ مراقبة المشاهد (يشتغل فقط بعد فتح القفل)
+  useEffect(() => {
+    if (!entered || !unlocked) return;
+
     const container = containerRef.current;
     if (!container) return;
 
@@ -82,11 +111,15 @@ const Index = () => {
     });
 
     return () => observer.disconnect();
-  }, []);
+  }, [entered, unlocked]);
 
-  // ✅ 2) Load from Supabase
+  // ✅ تحميل البيانات من Supabase (بعد فتح القفل فقط)
   useEffect(() => {
+    if (!entered || !unlocked) return;
+
     const load = async () => {
+      setLoading(true);
+
       const siteId = import.meta.env.VITE_SITE_ID as string | undefined;
       if (!siteId) {
         console.error("VITE_SITE_ID is missing in .env");
@@ -150,44 +183,9 @@ const Index = () => {
     };
 
     load();
-  }, []);
+  }, [entered, unlocked]);
 
-  // ✅ 3) Music: try autoplay + allow on first click
-  useEffect(() => {
-    const a = audioRef.current;
-    if (!a) return;
-
-    a.volume = 0.6;
-    a.loop = true;
-
-    const tryPlay = () => {
-      a.play().catch(() => {
-        // autoplay might be blocked
-      });
-    };
-
-    tryPlay();
-
-    const resumeOnClick = () => {
-      a.play().catch(() => {});
-      document.removeEventListener("click", resumeOnClick);
-    };
-
-    document.addEventListener("click", resumeOnClick);
-
-    return () => {
-      document.removeEventListener("click", resumeOnClick);
-    };
-  }, []);
-
-  const toggleMute = () => {
-    const a = audioRef.current;
-    if (!a) return;
-    a.muted = !a.muted;
-    setMuted(a.muted);
-  };
-
-  // ✅ Save to DB with debounce
+  // ✅ حفظ التعديلات (Debounce)
   const saveToDb = (next: SiteData) => {
     const siteId = import.meta.env.VITE_SITE_ID as string | undefined;
     if (!siteId) return;
@@ -212,11 +210,7 @@ const Index = () => {
 
         if (updErr) console.error("Update love_sites error:", updErr);
 
-        const { error: delErr } = await supabase
-          .from("love_reasons")
-          .delete()
-          .eq("site_id", siteId);
-
+        const { error: delErr } = await supabase.from("love_reasons").delete().eq("site_id", siteId);
         if (delErr) console.error("Delete love_reasons error:", delErr);
 
         if (next.reasons?.length) {
@@ -227,7 +221,6 @@ const Index = () => {
               position: i,
             }))
           );
-
           if (insErr) console.error("Insert love_reasons error:", insErr);
         }
       } catch (e) {
@@ -239,13 +232,15 @@ const Index = () => {
   const handleLock = () => {
     localStorage.removeItem("love-unlock");
     setUnlocked(false);
+    setEditOpen(false);
+    setEntered(false); // يرجع Intro ثم Gate
   };
 
-  // 💌 Daily message
+  // 💌 رسالة اليوم
   const dailyMessage = useMemo(() => {
     const today = new Date();
 
-    // 💘 Special message for 21/03
+    // يوم تعارفكم 21/03
     if (today.getDate() === 21 && today.getMonth() === 2) {
       return "اليوم يومنا يا فلاولة ❤️ يوم اخترتك وقلبي قال خلاص دي هي… والله لو الزمن رجع ألف مرة باختارك تاني.";
     }
@@ -264,44 +259,34 @@ const Index = () => {
 
   return (
     <div dir="rtl" className="relative">
-      {/* ✅ واحد فقط */}
+      {/* ✅ Audio واحد فقط ويستمر */}
       <audio ref={audioRef} src="/music/love.mp3" />
 
-      {/* 🔊 Mute/Unmute */}
+      {/* 🔊 زر الصوت يظهر دائمًا */}
       <button
         onClick={toggleMute}
-        className="fixed top-4 right-4 z-[300] glass rounded-full px-4 py-2 font-cairo text-sm cursor-pointer hover:scale-105 transition-transform"
+        className="fixed top-4 right-4 z-[999] glass rounded-full px-4 py-2 font-cairo text-sm cursor-pointer hover:scale-105 transition-transform"
         style={{ color: "hsl(var(--foreground))" }}
       >
         {muted ? "🔇 تشغيل الصوت" : "🔊 كتم الصوت"}
       </button>
 
-      {/* 🎬 Intro (every visit) */}
-      {!entered && (
-        <CinematicIntro herName="إيناس" onEnter={() => setEntered(true)} />
-      )}
+      {/* 1) Intro */}
+      {!entered && <CinematicIntro herName="إيناس" onEnter={() => setEntered(true)} />}
 
-      {/* 🔐 Gate */}
-      {entered && !unlocked && (
-        <UnlockGate onUnlock={() => setUnlocked(true)} />
-      )}
+      {/* 2) Gate (لا يفتح شيء غيره لو ما دخل التاريخ) */}
+      {entered && !unlocked && <UnlockGate onUnlock={() => setUnlocked(true)} />}
 
-      {/* ⏳ Loading */}
+      {/* 3) Loading */}
       {entered && unlocked && loading && (
-        <div
-          className="min-h-screen flex items-center justify-center"
-          style={{ background: "hsl(var(--background))" }}
-        >
-          <div
-            className="glass rounded-2xl px-6 py-4 font-cairo"
-            style={{ color: "hsl(340 20% 95%)" }}
-          >
+        <div className="min-h-screen flex items-center justify-center" style={{ background: "hsl(var(--background))" }}>
+          <div className="glass rounded-2xl px-6 py-4 font-cairo" style={{ color: "hsl(340 20% 95%)" }}>
             جاري تحميل الموقع...
           </div>
         </div>
       )}
 
-      {/* ✅ Main content */}
+      {/* 4) الموقع */}
       {entered && unlocked && !loading && (
         <>
           {/* Cinematic overlays */}
@@ -312,21 +297,12 @@ const Index = () => {
           <HeartParticles />
 
           {/* Progress Nav */}
-          <ProgressNav
-            currentScene={currentScene}
-            totalScenes={5}
-            onNavigate={navigateTo}
-          />
+          <ProgressNav currentScene={currentScene} totalScenes={5} onNavigate={navigateTo} />
 
-          {/* 💌 Daily Love Message */}
+          {/* 💌 رسالة اليوم + صورة */}
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[300] glass px-6 py-4 rounded-2xl text-center max-w-md shadow-xl backdrop-blur-md">
-            <p className="font-cairo text-sm md:text-base mb-2 text-pink-200">
-              💌 رسالة اليوم:
-            </p>
-
-            <p className="font-amiri text-lg text-white leading-relaxed">
-              {dailyMessage}
-            </p>
+            <p className="font-cairo text-sm md:text-base mb-2 text-pink-200">💌 رسالة اليوم:</p>
+            <p className="font-amiri text-lg text-white leading-relaxed">{dailyMessage}</p>
 
             {dailyPhoto && (
               <img
@@ -378,11 +354,7 @@ const Index = () => {
             </div>
 
             <div ref={setSceneRef(2)}>
-              <Scene3
-                data={data}
-                editMode={editOpen}
-                onChange={(next) => setData(next)}
-              />
+              <Scene3 data={data} editMode={editOpen} onChange={(next) => setData(next)} />
             </div>
 
             <div ref={setSceneRef(3)}>

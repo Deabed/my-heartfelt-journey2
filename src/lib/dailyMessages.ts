@@ -1,4 +1,4 @@
-export const dailyMessages = [
+export const dailyMessages: string[] = [
   "فلاولتي… انتي النور البينور يومي.",
   "يا غرتي… لما أضحك السبب انتي.",
   "نوسة… وجودك بيخليني أطمح أكتر.",

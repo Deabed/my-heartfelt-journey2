@@ -1,22 +1,14 @@
 import { motion } from "framer-motion";
-import { SiteData } from "@/lib/types";
+import { SiteData, PhotoItem } from "@/lib/types";
 import { useRef, useState } from "react";
 import Lightbox from "./Lightbox";
 import { supabase } from "@/lib/supabase";
 
 interface Props {
   data: SiteData;
-  editMode?: boolean; // ✅ يظهر أدوات التعديل فقط في وضع التعديل
-  onChange?: (next: SiteData) => void; // ✅ لتحديث الواجهة بعد الرفع/الحذف/التعديل
+  editMode?: boolean;
+  onChange?: (next: SiteData) => void;
 }
-
-type PhotoItem = {
-  id: string;
-  data: string; // public url
-  caption?: string;
-  story?: string;
-  storagePath?: string;
-};
 
 const bucketName = "love-memories";
 
@@ -35,13 +27,7 @@ async function uploadToStorage(file: File, siteId: string) {
   return { storagePath, publicUrl };
 }
 
-async function insertPhotoRow(
-  siteId: string,
-  storagePath: string,
-  caption: string,
-  story: string,
-  position: number
-) {
+async function insertPhotoRow(siteId: string, storagePath: string, caption: string, story: string, position: number) {
   const { data, error } = await supabase
     .from("love_photos")
     .insert({ site_id: siteId, storage_path: storagePath, caption, story, position })
@@ -69,11 +55,7 @@ async function deleteFromStorage(storagePath: string) {
 
 async function resequence(siteId: string, photos: PhotoItem[]) {
   for (let i = 0; i < photos.length; i++) {
-    await supabase
-      .from("love_photos")
-      .update({ position: i })
-      .eq("id", photos[i].id)
-      .eq("site_id", siteId);
+    await supabase.from("love_photos").update({ position: i }).eq("id", photos[i].id).eq("site_id", siteId);
   }
 }
 
@@ -85,18 +67,14 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
   const rotations = [-3, 2, -1.5, 3, -2, 1.5, -2.5, 2.5];
 
   const siteId = import.meta.env.VITE_SITE_ID as string | undefined;
-  const photos = (data.photos ?? []) as unknown as PhotoItem[];
+  const photos = (data.photos ?? []) as PhotoItem[];
 
   const triggerPick = () => fileRef.current?.click();
 
   const handleUpload = async (files: FileList | null) => {
-    if (!editMode) return;
-    if (!onChange) return;
+    if (!editMode || !onChange) return;
     if (!files || files.length === 0) return;
-    if (!siteId) {
-      alert("VITE_SITE_ID غير موجود في .env / Vercel env");
-      return;
-    }
+    if (!siteId) return alert("VITE_SITE_ID غير موجود في .env / Vercel env");
 
     setBusy(true);
     try {
@@ -105,9 +83,7 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-
         const { storagePath, publicUrl } = await uploadToStorage(file, siteId);
-
         const newId = await insertPhotoRow(siteId, storagePath, "", "", startPos + i);
 
         newPhotos.push({
@@ -119,13 +95,13 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
         });
       }
 
-      const next: SiteData = { ...data, photos: [...(photos as any), ...newPhotos] as any };
+      const next: SiteData = { ...data, photos: [...photos, ...newPhotos] };
       onChange(next);
 
       await resequence(siteId, [...photos, ...newPhotos]);
     } catch (e) {
       console.error(e);
-      alert("حصل خطأ أثناء رفع الصور. تأكد من Bucket وسياسات Supabase.");
+      alert("حصل خطأ أثناء رفع الصور. تأكد من Bucket (love-memories) وسياساته.");
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -134,15 +110,12 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
 
   const handleTextChange = (photoId: string, field: "caption" | "story", value: string) => {
     if (!onChange) return;
-
     const nextPhotos = photos.map((p) => (p.id === photoId ? { ...p, [field]: value } : p));
-    onChange({ ...data, photos: nextPhotos as any });
+    onChange({ ...data, photos: nextPhotos });
   };
 
   const persistText = async (photoId: string) => {
-    if (!editMode) return;
-    if (!siteId) return;
-
+    if (!editMode || !siteId) return;
     const p = photos.find((x) => x.id === photoId);
     if (!p) return;
 
@@ -155,13 +128,10 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
   };
 
   const handleDelete = async (photoId: string) => {
-    if (!editMode) return;
-    if (!onChange) return;
-    if (!siteId) return;
+    if (!editMode || !onChange || !siteId) return;
 
     const target = photos.find((p) => p.id === photoId);
     if (!target) return;
-
     if (!confirm("متأكد تبغى تحذف الصورة؟")) return;
 
     setBusy(true);
@@ -170,7 +140,7 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
       if (target.storagePath) await deleteFromStorage(target.storagePath);
 
       const remaining = photos.filter((p) => p.id !== photoId);
-      onChange({ ...data, photos: remaining as any });
+      onChange({ ...data, photos: remaining });
 
       await resequence(siteId, remaining);
     } catch (e) {
@@ -181,7 +151,7 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
     }
   };
 
-  // ✅ Empty State
+  // Empty state
   if (photos.length === 0) {
     return (
       <section className="snap-section relative flex flex-col items-center justify-center overflow-hidden">
@@ -289,7 +259,6 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
                 loading="lazy"
               />
 
-              {/* أدوات التعديل */}
               {editMode && (
                 <div className="absolute top-2 left-2 flex gap-2" onClick={(e) => e.stopPropagation()}>
                   <button
@@ -304,7 +273,6 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
                 </div>
               )}
 
-              {/* عرض Caption + Story في الوضع العادي */}
               {!editMode && (photo.caption || photo.story) && (
                 <div className="mt-2 px-2 pb-2 text-center">
                   {photo.caption && (
@@ -320,7 +288,6 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
                 </div>
               )}
 
-              {/* تعديل Caption + Story */}
               {editMode && (
                 <div className="mt-2 px-2 pb-2 space-y-2" onClick={(e) => e.stopPropagation()}>
                   <input
@@ -348,10 +315,10 @@ const Scene3 = ({ data, editMode = false, onChange }: Props) => {
 
       {lightboxIndex !== null && (
         <Lightbox
-          photos={data.photos}
+          photos={photos}
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
-          onNavigate={setLightboxIndex}
+          onNavigate={(n) => setLightboxIndex(n)}
         />
       )}
     </section>

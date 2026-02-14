@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 
 interface Props {
-  onUnlock: (code: string) => Promise<boolean>;
+  onSuccess: (code: string) => Promise<void>;
 }
 
-const UnlockGate = ({ onUnlock }: Props) => {
+const UnlockGate = ({ onSuccess }: Props) => {
   const [code, setCode] = useState("");
   const [attempts, setAttempts] = useState(0);
   const [error, setError] = useState("");
@@ -20,7 +20,6 @@ const UnlockGate = ({ onUnlock }: Props) => {
 
   useEffect(() => {
     if (!locked) return;
-
     const t = setInterval(() => {
       setSecondsLeft((s) => {
         if (s <= 1) {
@@ -30,42 +29,42 @@ const UnlockGate = ({ onUnlock }: Props) => {
         return s - 1;
       });
     }, 1000);
-
     return () => clearInterval(t);
   }, [locked]);
 
   const handleSubmit = async () => {
     if (locked) return;
 
-    const value = code.trim();
-    if (!value) return;
+    const v = code.trim();
+    if (!v) return;
 
-    const success = await onUnlock(value);
+    try {
+      await onSuccess(v);
+      setError("");
+    } catch (e: any) {
+      const next = attempts + 1;
+      setAttempts(next);
 
-    if (success) return;
+      if (next >= 5) {
+        setLocked(true);
+        setSecondsLeft(30);
+        setError("اتقفلت 30 ثانية… استني يا نوسة 💔");
 
-    const next = attempts + 1;
-    setAttempts(next);
+        setTimeout(() => {
+          setLocked(false);
+          setAttempts(0);
+          setError("");
+          setCode("");
+        }, 30000);
 
-    if (next >= 5) {
-      setLocked(true);
-      setSecondsLeft(30);
-      setError("اتقفلت 30 ثانية… استني يا نوسة 💔");
+        return;
+      }
 
-      setTimeout(() => {
-        setLocked(false);
-        setAttempts(0);
-        setError("");
-        setCode("");
-      }, 30000);
-
-      return;
-    }
-
-    if (next >= 3) {
-      setError("راجعي ذاكرتك يا فلاولة… التاريخ بصيغة 21/03/2024 💭");
-    } else {
-      setError("التاريخ غلط - ح انكد عليك 💔");
+      if (next >= 3) {
+        setError("راجعي ذاكرتك يا فلاولة… التاريخ بصيغة 01/00/2000 💭");
+      } else {
+        setError(e?.message || "التاريخ غلط - ح انكد عليك 💔");
+      }
     }
   };
 
@@ -88,13 +87,14 @@ const UnlockGate = ({ onUnlock }: Props) => {
           placeholder="21/03/2024"
           disabled={locked}
           className="w-full px-4 py-2 rounded-lg text-black text-center mb-3"
+          inputMode="numeric"
         />
 
         <p className="text-xs text-white/70 mb-3">
           المحاولات: <span className="font-bold">{attempts}</span>/5
-          {locked && secondsLeft > 0 && (
+          {locked && secondsLeft > 0 ? (
             <span className="ml-2">— استني {secondsLeft}s</span>
-          )}
+          ) : null}
         </p>
 
         {error && <p className="text-pink-300 text-sm mb-4">{error}</p>}
@@ -104,7 +104,7 @@ const UnlockGate = ({ onUnlock }: Props) => {
           disabled={locked}
           className="px-6 py-2 rounded-full bg-pink-600 hover:bg-pink-700 transition disabled:opacity-50"
         >
-          دخول
+          ارح
         </button>
       </motion.div>
     </div>

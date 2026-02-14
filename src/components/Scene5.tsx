@@ -77,7 +77,7 @@ const Scene5 = ({ data }: Props) => {
                 transition={{ delay: 1 }}
               >
                 <p className="text-lg font-amiri" style={{ color: 'hsl(350 50% 75%)' }}>
-                  بحب دائمًا — {data.myName}
+                  بحبك دائمًا — {data.myName}
                 </p>
                 <p className="mt-3 text-sm font-cairo" style={{ color: 'hsl(340 10% 55%)' }}>
                   تم صنع هذا الموقع خصيصًا لك 💗

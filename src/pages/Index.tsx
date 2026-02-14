@@ -15,22 +15,41 @@ import UnlockGate from "@/components/UnlockGate";
 
 import { dailyMessages } from "@/lib/dailyMessages";
 
+// ✅ حفظ حالة الفتح (جلسة لمدة 7 أيام)
+const checkUnlocked = (): boolean => {
+  try {
+    const raw = localStorage.getItem("love-unlock");
+    if (!raw) return false;
+    const { isUnlocked, expires } = JSON.parse(raw);
+    if (isUnlocked && expires > Date.now()) return true;
+    localStorage.removeItem("love-unlock");
+    return false;
+  } catch {
+    return false;
+  }
+};
+
+const setUnlockedCache = () => {
+  const expires = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
+  localStorage.setItem("love-unlock", JSON.stringify({ isUnlocked: true, expires }));
+};
+
 const Index = () => {
-  // 🎬 Intro
+  // 🎬 Intro يظهر كل مرة زيارة
   const [entered, setEntered] = useState(false);
 
   // 🔐 Gate
-  const [unlocked, setUnlocked] = useState(false);
+  const [unlocked, setUnlocked] = useState<boolean>(checkUnlocked);
 
   // 📦 Data
   const [data, setData] = useState<SiteData>(defaultData);
   const [loading, setLoading] = useState(true);
 
   // ✏️ Edit
-  const [editOpen, setEditOpen] = useState(false);
   const saveTimer = useRef<number | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
 
-  // 🧭 Scenes
+  // 🧭 Scenes nav
   const [currentScene, setCurrentScene] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -43,10 +62,35 @@ const Index = () => {
     sceneRefs.current[i] = el;
   };
 
-  // 🎵 Music
+  // 🎵 Music (global)
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [muted, setMuted] = useState(false);
 
+  // ✅ 1) Scene observer
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const idx = sceneRefs.current.indexOf(entry.target as HTMLDivElement);
+            if (idx !== -1) setCurrentScene(idx);
+          }
+        });
+      },
+      { root: container, threshold: 0.5 }
+    );
+
+    sceneRefs.current.forEach((ref) => {
+      if (ref) observer.observe(ref);
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  // ✅ 2) Global music play (auto + fallback click)
   useEffect(() => {
     const playAudio = () => {
       const a = audioRef.current;
@@ -71,70 +115,92 @@ const Index = () => {
     setMuted(a.muted);
   };
 
-  // 🔐 Unlock via Edge Function
-  const handleUnlock = async (dateInput: string): Promise<boolean> => {
-    const { data, error } = await supabase.functions.invoke("unlock", {
-      body: { date: dateInput.trim() },
+  // ✅ 3) Unlock via Edge Function
+  // مهم: لازم "ترمي خطأ" إذا التاريخ غلط عشان UnlockGate يهتز ويحسب المحاولات
+  const handleGateSuccess = async (dateInput: string) => {
+    const cleaned = (dateInput || "").trim();
+
+    const { data: res, error } = await supabase.functions.invoke("unlock", {
+      body: { date: cleaned },
     });
 
     if (error) {
-      console.error(error);
-      return false;
+      console.error("unlock error:", error);
+      throw new Error("حصل خطأ في التحقق، جرّبي مرة ثانية.");
     }
 
-    if (data?.success) {
+    if (res?.success) {
+      setUnlockedCache();
       setUnlocked(true);
-      return true;
+      return;
     }
 
-    return false;
+    throw new Error(res?.message || "التاريخ غير صحيح ❤️");
   };
 
-  // 📥 Load from Supabase after unlock
+  // ✅ 4) Load from Supabase (بعد الفتح فقط)
   useEffect(() => {
     if (!unlocked) return;
 
     const load = async () => {
-      const siteId = import.meta.env.VITE_SITE_ID as string;
+      const siteId = import.meta.env.VITE_SITE_ID as string | undefined;
+      if (!siteId) {
+        console.error("VITE_SITE_ID is missing in .env");
+        setLoading(false);
+        return;
+      }
 
-      const { data: site } = await supabase
+      const { data: site, error: siteErr } = await supabase
         .from("love_sites")
         .select("*")
         .eq("id", siteId)
         .single();
 
-      const { data: reasons } = await supabase
+      const { data: reasons, error: reasonsErr } = await supabase
         .from("love_reasons")
         .select("*")
         .eq("site_id", siteId)
         .order("position", { ascending: true });
 
-      const { data: photos } = await supabase
+      const { data: photos, error: photosErr } = await supabase
         .from("love_photos")
         .select("*")
         .eq("site_id", siteId)
         .order("position", { ascending: true });
 
+      if (siteErr) console.error("love_sites error:", siteErr);
+      if (reasonsErr) console.error("love_reasons error:", reasonsErr);
+      if (photosErr) console.error("love_photos error:", photosErr);
+
       if (site) {
-        setData({
+        const mapped: SiteData = {
           herName: site.her_name ?? defaultData.herName,
           myName: site.his_name ?? defaultData.myName,
           startDate: site.start_date ?? defaultData.startDate,
-          heroSubtitle: site.hero_subtitle ?? "",
-          loveLetter: site.love_letter ?? "",
-          reasons: (reasons ?? []).map((r: any) => r.reason),
-          surpriseMessage: site.surprise_text ?? "",
-          photos: (photos ?? []).map((p: any) => ({
-            id: p.id,
-            data: supabase.storage
+          heroSubtitle: site.hero_subtitle ?? defaultData.heroSubtitle,
+          loveLetter: site.love_letter ?? defaultData.loveLetter,
+          reasons: (reasons ?? []).map((r: any) => r.reason) ?? defaultData.reasons,
+          surpriseMessage: site.surprise_text ?? defaultData.surpriseMessage,
+          photos: (photos ?? []).map((p: any) => {
+            const publicUrl = supabase.storage
               .from("love-memories")
-              .getPublicUrl(p.storage_path).data.publicUrl,
-            caption: p.caption ?? "",
-            storagePath: p.storage_path,
-          })),
-          language: "ar",
-          musicEnabled: true,
-        });
+              .getPublicUrl(p.storage_path).data.publicUrl;
+
+            return {
+              id: p.id,
+              data: publicUrl,
+              caption: p.caption ?? "",
+              story: p.story ?? "", // ✅ هنا مكان story بالضبط
+              storagePath: p.storage_path,
+            };
+          }),
+          language: site.language === "en" ? "en" : "ar",
+          musicEnabled: !!site.music_enabled,
+        };
+
+        setData(mapped);
+      } else {
+        setData(defaultData);
       }
 
       setLoading(false);
@@ -143,40 +209,79 @@ const Index = () => {
     load();
   }, [unlocked]);
 
-  // 💾 Save debounce
+  // ✅ Save to DB with debounce (love_sites + love_reasons فقط)
   const saveToDb = (next: SiteData) => {
-    const siteId = import.meta.env.VITE_SITE_ID as string;
+    const siteId = import.meta.env.VITE_SITE_ID as string | undefined;
     if (!siteId) return;
 
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
 
     saveTimer.current = window.setTimeout(async () => {
-      await supabase.from("love_sites").update({
-        her_name: next.herName,
-        his_name: next.myName,
-        start_date: next.startDate,
-        hero_subtitle: next.heroSubtitle,
-        love_letter: next.loveLetter,
-        surprise_text: next.surpriseMessage,
-      }).eq("id", siteId);
+      try {
+        const { error: updErr } = await supabase
+          .from("love_sites")
+          .update({
+            her_name: next.herName,
+            his_name: next.myName,
+            start_date: next.startDate,
+            hero_subtitle: next.heroSubtitle,
+            love_letter: next.loveLetter,
+            surprise_text: next.surpriseMessage,
+            language: next.language,
+            music_enabled: next.musicEnabled,
+          })
+          .eq("id", siteId);
+
+        if (updErr) console.error("Update love_sites error:", updErr);
+
+        const { error: delErr } = await supabase.from("love_reasons").delete().eq("site_id", siteId);
+        if (delErr) console.error("Delete love_reasons error:", delErr);
+
+        if (next.reasons?.length) {
+          const { error: insErr } = await supabase.from("love_reasons").insert(
+            next.reasons.map((reason, i) => ({
+              site_id: siteId,
+              reason,
+              position: i,
+            }))
+          );
+          if (insErr) console.error("Insert love_reasons error:", insErr);
+        }
+      } catch (e) {
+        console.error("Failed to save", e);
+      }
     }, 600);
   };
 
-  // 💌 Daily Message
+  const handleLock = () => {
+    localStorage.removeItem("love-unlock");
+    setUnlocked(false);
+    setLoading(true);
+  };
+
+  // 💌 Daily message (stable for this session)
   const dailyMessage = useMemo(() => {
     const today = new Date();
+
+    // 💘 Special message for 21/03
+    if (today.getDate() === 21 && today.getMonth() === 2) {
+      return "اليوم يومنا يا فلاولة ❤️ يوم اخترتك وقلبي قال خلاص دي هي… والله لو الزمن رجع ألف مرة باختارك تاني.";
+    }
+
     const start = new Date(today.getFullYear(), 0, 0);
     const diff = today.getTime() - start.getTime();
     const dayOfYear = Math.floor(diff / 86400000);
     return dailyMessages[dayOfYear % dailyMessages.length];
   }, []);
 
+  // 📸 random photo for today (stable for this session)
   const dailyPhoto = useMemo(() => {
-    if (!data.photos.length) return null;
-    return data.photos[Math.floor(Math.random() * data.photos.length)];
+    if (!data.photos?.length) return null;
+    const idx = Math.floor(Math.random() * data.photos.length);
+    return data.photos[idx];
   }, [data.photos]);
 
-  // 🎬 Intro
+  // 🎬 Intro (every visit)
   if (!entered) {
     return (
       <>
@@ -191,55 +296,93 @@ const Index = () => {
     return (
       <>
         <audio ref={audioRef} src="/music/love.mp3" />
-        <UnlockGate onUnlock={handleUnlock} />
+        {/* ✅ مهم: UnlockGate عندك يستخدم onSuccess */}
+        <UnlockGate onSuccess={handleGateSuccess} />
       </>
     );
   }
 
-  if (loading) return <div className="h-screen bg-black" />;
+  // ⏳ Loading
+  if (loading) {
+    return (
+      <>
+        <audio ref={audioRef} src="/music/love.mp3" />
+        <div className="min-h-screen flex items-center justify-center" style={{ background: "hsl(var(--background))" }}>
+          <div className="glass rounded-2xl px-6 py-4 font-cairo" style={{ color: "hsl(340 20% 95%)" }}>
+            جاري تحميل الموقع...
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <div dir="rtl" className="relative">
+      {/* 🎵 Music element (keeps playing) */}
       <audio ref={audioRef} src="/music/love.mp3" />
 
-      {/* 🔊 Mute */}
+      {/* 🔊 Mute/Unmute */}
       <button
         onClick={toggleMute}
-        className="fixed top-4 right-4 z-50 glass px-4 py-2 rounded-full"
+        className="fixed top-4 right-4 z-[260] glass rounded-full px-4 py-2 font-cairo text-sm cursor-pointer hover:scale-105 transition-transform"
+        style={{ color: "hsl(var(--foreground))" }}
       >
-        {muted ? "🔇" : "🔊"}
+        {muted ? "🔇 تشغيل الصوت" : "🔊 كتم الصوت"}
       </button>
 
+      {/* Cinematic overlays */}
+      <div className="film-grain" />
+      <div className="vignette" />
+
+      {/* Heart particles */}
       <HeartParticles />
 
-      {/* 💌 رسالة اليوم */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 glass px-6 py-4 rounded-2xl text-center max-w-md">
-        <p className="text-pink-200">💌 رسالة اليوم:</p>
-        <p className="text-white">{dailyMessage}</p>
+      {/* Progress Nav */}
+      <ProgressNav currentScene={currentScene} totalScenes={5} onNavigate={navigateTo} />
+
+      {/* 💌 Daily Love Message */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[300] glass px-6 py-4 rounded-2xl text-center max-w-md shadow-xl backdrop-blur-md">
+        <p className="font-cairo text-sm md:text-base mb-2 text-pink-200">💌 رسالة اليوم:</p>
+
+        <p className="font-amiri text-lg text-white leading-relaxed">{dailyMessage}</p>
+
         {dailyPhoto && (
           <img
             src={dailyPhoto.data}
-            className="mt-3 w-32 h-32 object-cover rounded-xl mx-auto"
+            alt={dailyPhoto.caption || "ذكرى"}
+            className="mt-3 w-32 h-32 object-cover rounded-xl mx-auto border border-pink-400"
+            loading="lazy"
           />
         )}
       </div>
 
-      {/* ✏️ تعديل */}
+      {/* Edit button */}
       <button
         onClick={() => setEditOpen(true)}
-        className="fixed top-4 left-4 z-50 glass px-4 py-2 rounded-full"
+        className="fixed top-4 left-4 z-[250] glass rounded-full px-4 py-2 font-cairo text-sm cursor-pointer hover:scale-105 transition-transform"
+        style={{ color: "hsl(var(--foreground))" }}
       >
-        ✏️
+        ✏️ تعديل
       </button>
 
+      {/* Lock button */}
+      <button
+        onClick={handleLock}
+        className="fixed top-4 left-28 z-[250] glass rounded-full px-4 py-2 font-cairo text-sm cursor-pointer hover:scale-105 transition-transform"
+        style={{ color: "hsl(var(--foreground))" }}
+      >
+        🔒 قفل
+      </button>
+
+      {/* Edit Panel */}
       <EditPanel
         data={data}
-        open={editOpen}
-        onClose={() => setEditOpen(false)}
         onChange={(next) => {
           setData(next);
           saveToDb(next);
         }}
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
       />
 
       {/* Scenes */}
@@ -247,15 +390,26 @@ const Index = () => {
         <div ref={setSceneRef(0)}>
           <Scene1 data={data} onNext={() => navigateTo(1)} />
         </div>
+
         <div ref={setSceneRef(1)}>
           <Scene2 data={data} />
         </div>
+
         <div ref={setSceneRef(2)}>
-          <Scene3 data={data} editMode={editOpen} onChange={setData} />
+          {/* ✅ Scene3 صار فيه Caption + Story */}
+          <Scene3
+            data={data}
+            editMode={editOpen}
+            onChange={(next) => {
+              setData(next);
+            }}
+          />
         </div>
+
         <div ref={setSceneRef(3)}>
           <Scene4 data={data} />
         </div>
+
         <div ref={setSceneRef(4)}>
           <Scene5 data={data} />
         </div>

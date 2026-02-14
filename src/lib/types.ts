@@ -2,7 +2,7 @@ export interface PhotoItem {
   id: string;
   data: string; // public URL
   caption: string;
-  story?: string; // ✅ جديد
+  story?: string; // ✅ story
   storagePath?: string; // Supabase Storage path
 }
 

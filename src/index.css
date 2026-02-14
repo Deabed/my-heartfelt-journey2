@@ -1,0 +1,205 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800&family=Amiri:ital,wght@0,400;0,700;1,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 340 30% 6%;
+    --foreground: 340 20% 95%;
+
+    --card: 340 25% 10%;
+    --card-foreground: 340 20% 95%;
+
+    --popover: 340 25% 10%;
+    --popover-foreground: 340 20% 95%;
+
+    --primary: 340 65% 55%;
+    --primary-foreground: 340 20% 98%;
+
+    --secondary: 340 20% 15%;
+    --secondary-foreground: 340 20% 90%;
+
+    --muted: 340 15% 14%;
+    --muted-foreground: 340 10% 55%;
+
+    --accent: 25 70% 60%;
+    --accent-foreground: 25 90% 95%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 340 20% 18%;
+    --input: 340 20% 18%;
+    --ring: 340 65% 55%;
+
+    --radius: 0.75rem;
+
+    --rose-glow: 340 80% 65%;
+    --gold: 38 70% 55%;
+    --gold-foreground: 38 90% 95%;
+    --blush: 350 50% 75%;
+    --wine: 340 40% 12%;
+    --deep: 340 35% 4%;
+
+    --sidebar-background: 340 30% 8%;
+    --sidebar-foreground: 340 20% 90%;
+    --sidebar-primary: 340 65% 55%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 340 20% 15%;
+    --sidebar-accent-foreground: 340 20% 90%;
+    --sidebar-border: 340 20% 18%;
+    --sidebar-ring: 340 65% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Cairo', sans-serif;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Amiri', serif;
+  }
+}
+
+/* Film grain overlay */
+.film-grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+}
+
+/* Vignette */
+.vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 99;
+  background: radial-gradient(ellipse at center, transparent 50%, hsl(340 35% 4% / 0.7) 100%);
+}
+
+/* Glassmorphism */
+.glass {
+  background: hsl(340 25% 10% / 0.5);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid hsl(340 20% 18% / 0.5);
+}
+
+.glass-strong {
+  background: hsl(340 25% 10% / 0.7);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid hsl(340 20% 18% / 0.6);
+}
+
+/* Polaroid card */
+.polaroid {
+  background: hsl(340 20% 95%);
+  padding: 0.75rem 0.75rem 2.5rem;
+  box-shadow: 0 4px 20px hsl(0 0% 0% / 0.4), 0 0 40px hsl(340 80% 65% / 0.1);
+  transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.polaroid:hover {
+  transform: scale(1.05) rotate(0deg) !important;
+  box-shadow: 0 8px 40px hsl(0 0% 0% / 0.5), 0 0 60px hsl(340 80% 65% / 0.2);
+}
+
+/* Scroll snap */
+.snap-container {
+  scroll-snap-type: y mandatory;
+  overflow-y: auto;
+  height: 100vh;
+}
+
+.snap-section {
+  scroll-snap-align: start;
+  min-height: 100vh;
+}
+
+/* Bokeh */
+@keyframes bokeh-float {
+  0%, 100% { transform: translateY(0) scale(1); opacity: 0.3; }
+  50% { transform: translateY(-30px) scale(1.2); opacity: 0.6; }
+}
+
+.bokeh-dot {
+  animation: bokeh-float var(--duration, 4s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+/* Heart float */
+@keyframes heart-float {
+  0% { transform: translateY(0) scale(0); opacity: 0; }
+  10% { opacity: 0.8; transform: translateY(0) scale(1); }
+  90% { opacity: 0.2; }
+  100% { transform: translateY(-100vh) scale(0.5); opacity: 0; }
+}
+
+.heart-particle {
+  animation: heart-float var(--duration, 6s) ease-out forwards;
+  animation-delay: var(--delay, 0s);
+}
+
+/* Confetti */
+@keyframes confetti-fall {
+  0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+}
+
+.confetti-piece {
+  animation: confetti-fall var(--duration, 3s) ease-in forwards;
+  animation-delay: var(--delay, 0s);
+}
+
+/* Gift box */
+@keyframes gift-shake {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-5deg); }
+  75% { transform: rotate(5deg); }
+}
+
+.gift-shake {
+  animation: gift-shake 0.5s ease-in-out infinite;
+}
+
+.gift-shake:hover {
+  animation-duration: 0.2s;
+}
+
+/* Counter digit */
+@keyframes count-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Glow pulse */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 20px hsl(340 80% 65% / 0.3); }
+  50% { box-shadow: 0 0 40px hsl(340 80% 65% / 0.6), 0 0 80px hsl(340 80% 65% / 0.2); }
+}
+
+.glow-pulse {
+  animation: glow-pulse 3s ease-in-out infinite;
+}
+
+/* RTL support */
+[dir="rtl"] {
+  text-align: right;
+}
